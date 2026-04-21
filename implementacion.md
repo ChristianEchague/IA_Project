@@ -23,38 +23,39 @@ Abrir Visual Studio Code en modo administrador, crear una carpeta de proyecto y 
 ```dockerfile
 FROM node:22
 
-RUN apt-get update && apt-get install -y \
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
     openssh-server \
     vim \
     curl \
     git \
     ca-certificates \
     build-essential \
-    && apt-get clean
-
-RUN npm install -g pnpm
-
-ENV SSH_PASSWORD=admin1234
-
-RUN mkdir /var/run/sshd && \
-    echo "root:${SSH_PASSWORD}" | chpasswd && \
-    sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config
+    && mkdir /var/run/sshd \
+    && echo "root:${SSH_PASSWORD:-admin1234}" | chpasswd \
+    && sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config \
+    && sed -i 's/#PasswordAuthentication yes/PasswordAuthentication yes/' /etc/ssh/sshd_config \
+    && npm install -g pnpm \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 EXPOSE 22
 
 CMD ["/usr/sbin/sshd", "-D"]
 ```
 
-### `docker-compose.yml`
+### `docker-compose.yml` (Tener en cuenta que esta acativo el uso de GPU si no lo quieren eliminen las lineas 'deploy' del ollama)
 
 ```yaml
 services:
   ollama:
-    image: ollama/ollama
-    ports:
-      - "11434:11434"
+    image: ollama/ollama:latest
+    container_name: ollama
     volumes:
       - ollama_data:/root/.ollama
+    ports:
+      - "11434:11434"
+    restart: unless-stopped
     deploy:
       resources:
         reservations:
@@ -65,28 +66,35 @@ services:
 
   open-webui:
     image: ghcr.io/open-webui/open-webui:main
+    container_name: open-webui
+    depends_on:
+      - ollama
     ports:
       - "3000:8080"
     environment:
       - OLLAMA_BASE_URL=http://ollama:11434
-    depends_on:
-      - ollama
+    volumes:
+      - open_webui_data:/app/backend/data
+    restart: unless-stopped
 
   openclaw_ubuntu:
     build:
       context: .
       dockerfile: Dockerfile.ubuntu-ssh
+    container_name: openclaw_ubuntu
     ports:
       - "2222:22"
       - "18790:18789"
       - "18791:18791"
     environment:
-      - SSH_PASSWORD=admin1234
+      - SSH_PASSWORD=Periles1976!
     volumes:
       - openclaw_ubuntu_home:/root
+    restart: unless-stopped
 
 volumes:
   ollama_data:
+  open_webui_data:
   openclaw_ubuntu_home:
 ```
 
